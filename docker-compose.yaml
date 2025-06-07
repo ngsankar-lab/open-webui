@@ -17,7 +17,7 @@ services:
     image: ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-main}
     container_name: open-webui
     volumes:
-      - open-webui:/app/backend/data
+      - /home/ec2-user/openwebui-data:/app/backend/data
     depends_on:
       - ollama
     ports:
