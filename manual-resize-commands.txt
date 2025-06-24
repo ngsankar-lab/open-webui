@@ -1,0 +1,29 @@
+# Manual Logo Resize Commands
+# Save your LazyBoy logo as 'lazyboy-logo.png' first, then run these commands:
+
+# Main logos (500x500)
+sips -z 500 500 lazyboy-logo.png --out static/logo.png
+sips -z 500 500 lazyboy-logo.png --out static/splash.png
+sips -z 500 500 lazyboy-logo.png --out backend/open_webui/static/logo.png
+
+# Favicons (32x32)
+sips -z 32 32 lazyboy-logo.png --out static/favicon.png
+sips -z 32 32 lazyboy-logo.png --out backend/open_webui/static/favicon.png
+
+# Favicon 96x96
+sips -z 96 96 lazyboy-logo.png --out static/favicon-96x96.png
+sips -z 96 96 lazyboy-logo.png --out backend/open_webui/static/favicon-96x96.png
+
+# Apple touch icon (180x180)
+sips -z 180 180 lazyboy-logo.png --out static/apple-touch-icon.png
+
+# Web app manifest icons
+sips -z 192 192 lazyboy-logo.png --out static/web-app-manifest-192x192.png
+sips -z 512 512 lazyboy-logo.png --out static/web-app-manifest-512x512.png
+
+# Copy for ICO (simplified)
+cp static/favicon.png static/favicon.ico
+cp static/favicon.png backend/open_webui/static/favicon.ico
+
+# Dark theme splash
+cp static/splash.png static/splash-dark.png
