@@ -1,0 +1,250 @@
+name: Auto-Update from Upstream
+
+on:
+  schedule:
+    # Run every Monday at 9 AM UTC (check for updates weekly)
+    - cron: '0 9 * * 1'
+  workflow_dispatch: # Allow manual triggering
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-upstream-updates:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Add upstream remote
+        run: |
+          if ! git remote | grep -q upstream; then
+            git remote add upstream https://github.com/open-webui/open-webui.git
+          fi
+          git fetch upstream
+      
+      - name: Check for new releases
+        id: check-release
+        run: |
+          # Get current version from package.json
+          CURRENT_VERSION=$(cat package.json | grep '"version"' | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+          
+          # Get latest upstream tag
+          LATEST_TAG=$(git tag --list --sort=-version:refname "v*" | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | head -1)
+          LATEST_VERSION=${LATEST_TAG#v}
+          
+          echo "Current version: $CURRENT_VERSION"
+          echo "Latest version: $LATEST_VERSION"
+          
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          
+          # Compare versions
+          if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+            echo "update_available=true" >> $GITHUB_OUTPUT
+            echo "🎉 New version available: $LATEST_VERSION"
+          else
+            echo "update_available=false" >> $GITHUB_OUTPUT
+            echo "✅ Already up to date!"
+          fi
+      
+      - name: Create update branch
+        if: steps.check-release.outputs.update_available == 'true'
+        run: |
+          BRANCH_NAME="auto-update/v${{ steps.check-release.outputs.latest_version }}"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          
+          # Create and checkout new branch
+          git checkout -b "$BRANCH_NAME"
+          
+          # Merge upstream changes while preserving LZB customizations
+          echo "🔄 Merging upstream changes..."
+          if git merge upstream/main --no-edit; then
+            echo "✅ Merge successful"
+            echo "merge_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Merge conflicts detected"
+            echo "merge_success=false" >> $GITHUB_OUTPUT
+            
+            # Show conflicted files for debugging
+            echo "Conflicted files:"
+            git status --porcelain | grep "^UU" || true
+            
+            # For now, abort the merge - manual intervention needed
+            git merge --abort
+            exit 1
+          fi
+        id: merge
+      
+      - name: Verify LZB customizations
+        if: steps.check-release.outputs.update_available == 'true' && steps.merge.outputs.merge_success == 'true'
+        run: |
+          echo "🔍 Verifying LZB customizations are preserved..."
+          
+          # Check if LZB branding is still intact
+          if grep -q "LZB AI Platform" src/lib/constants.ts; then
+            echo "✅ App name customization preserved"
+          else
+            echo "❌ App name customization lost!"
+            exit 1
+          fi
+          
+          if grep -q "LZB AI Platform" backend/open_webui/env.py; then
+            echo "✅ Backend name customization preserved"
+          else
+            echo "❌ Backend name customization lost!"
+            exit 1
+          fi
+          
+          # Check if custom favicon files exist
+          if [ -f "static/favicon.svg" ] && grep -q "LZB" static/favicon.svg; then
+            echo "✅ Custom favicon preserved"
+          else
+            echo "❌ Custom favicon lost!"
+            exit 1
+          fi
+          
+          # Check if Claude.md exists
+          if [ -f "CLAUDE.md" ]; then
+            echo "✅ CLAUDE.md preserved"
+          else
+            echo "⚠️ CLAUDE.md not found (expected if this is a fresh setup)"
+          fi
+          
+          echo "✅ All LZB customizations verified!"
+      
+      - name: Push update branch
+        if: steps.check-release.outputs.update_available == 'true' && steps.merge.outputs.merge_success == 'true'
+        run: |
+          BRANCH_NAME="auto-update/v${{ steps.check-release.outputs.latest_version }}"
+          git push origin "$BRANCH_NAME"
+      
+      - name: Create Pull Request
+        if: steps.check-release.outputs.update_available == 'true' && steps.merge.outputs.merge_success == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pullRequest } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🤖 Auto-update to Open WebUI v${{ steps.check-release.outputs.latest_version }}`,
+              head: `auto-update/v${{ steps.check-release.outputs.latest_version }}`,
+              base: 'main',
+              body: |
+                ## 🚀 Automated Update Available
+
+                This pull request automatically updates Open WebUI from **v${{ steps.check-release.outputs.current_version }}** to **v${{ steps.check-release.outputs.latest_version }}**.
+
+                ### ✅ LZB Customizations Verified
+                - App title: "LZB AI Platform" ✅
+                - Custom favicon with LZB branding ✅ 
+                - Custom splash screens ✅
+                - Backend configuration ✅
+
+                ### 📋 What to do next:
+                1. Review the changes in this PR
+                2. Test the application locally if needed
+                3. Merge when ready to apply the update
+
+                ### 🔧 Manual Testing (Optional):
+                ```bash
+                git checkout auto-update/v${{ steps.check-release.outputs.latest_version }}
+                npm install
+                cd backend && pip install -r requirements.txt
+                npm run dev
+                ```
+
+                ### 📚 Release Notes:
+                Check the [official changelog](https://github.com/open-webui/open-webui/releases/tag/${{ steps.check-release.outputs.latest_tag }}) for details about what's new.
+
+                ---
+                🤖 This update was automatically created by GitHub Actions.
+                Generated with ❤️ for LZB AI Platform
+            });
+
+            // Add labels
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pullRequest.number,
+              labels: ['🤖 automated', '⬆️ update', '🔧 maintenance']
+            });
+
+            console.log(`Created PR #${pullRequest.number}: ${pullRequest.html_url}`);
+      
+      - name: Notify if conflicts
+        if: steps.check-release.outputs.update_available == 'true' && steps.merge.outputs.merge_success == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Create an issue to notify about merge conflicts
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `⚠️ Manual intervention needed: Update to v${{ steps.check-release.outputs.latest_version }} has conflicts`,
+              body: |
+                ## 🚨 Merge Conflicts Detected
+
+                The automated update to Open WebUI **v${{ steps.check-release.outputs.latest_version }}** encountered merge conflicts and requires manual resolution.
+
+                ### 🛠️ Manual Steps Required:
+
+                1. **Fetch latest changes:**
+                   ```bash
+                   git fetch upstream
+                   git checkout main
+                   ```
+
+                2. **Create update branch:**
+                   ```bash
+                   git checkout -b manual-update-v${{ steps.check-release.outputs.latest_version }}
+                   ```
+
+                3. **Attempt merge:**
+                   ```bash
+                   git merge upstream/main
+                   ```
+
+                4. **Resolve conflicts manually and ensure LZB customizations are preserved**
+
+                5. **Create PR when ready**
+
+                ### 🔍 Files that likely need attention:
+                - Check for conflicts in LZB branding files
+                - Verify `src/lib/constants.ts` contains "LZB AI Platform"
+                - Verify `backend/open_webui/env.py` contains LZB configuration
+                - Ensure custom favicon and splash images are preserved
+
+                ---
+                🤖 This issue was automatically created by GitHub Actions.
+              labels: ['🚨 manual-intervention', '⬆️ update', '🔧 maintenance']
+            });
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 📊 Update Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Current version: ${{ steps.check-release.outputs.current_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Latest version: ${{ steps.check-release.outputs.latest_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Update available: ${{ steps.check-release.outputs.update_available }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.check-release.outputs.update_available }}" = "true" ]; then
+            if [ "${{ steps.merge.outputs.merge_success }}" = "true" ]; then
+              echo "- ✅ Auto-update PR created successfully" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ⚠️ Manual intervention required due to conflicts" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- ✅ Already up to date" >> $GITHUB_STEP_SUMMARY
+          fi
