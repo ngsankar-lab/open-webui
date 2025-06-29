@@ -45,6 +45,9 @@ services:
       # Persistent data storage
       - lzb_data:/app/backend/data
       
+    # Ensure proper permissions for database
+    user: "0:0"
+      
       # Optional: Custom models directory
       # - ./models:/app/models
       

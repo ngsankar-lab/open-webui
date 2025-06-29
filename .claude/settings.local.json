@@ -17,7 +17,13 @@
       "Bash(git checkout:*)",
       "Bash(docker stop:*)",
       "Bash(docker rm:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(docker:*)",
+      "Bash(git add:*)",
+      "Bash(curl:*)",
+      "Bash(npm install:*)",
+      "Bash(sudo npm install -g @modelcontextprotocol/server-puppeteer)",
+      "Bash(PUPPETEER_SKIP_DOWNLOAD=true npm install @modelcontextprotocol/server-puppeteer)"
     ],
     "deny": []
   }
